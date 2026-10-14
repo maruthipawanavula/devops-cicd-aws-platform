@@ -1,0 +1,69 @@
+name: CD (stub)
+
+# Continuous delivery pipeline — STUB.
+#
+# This workflow shows the intended shape of the deployment pipeline:
+# build & push the image to Amazon ECR, then roll out a new task
+# definition revision on Amazon ECS Fargate. It is intentionally
+# gated behind a manual `workflow_dispatch` trigger and a GitHub
+# Environment ("production") so it never runs unattended until real
+# AWS credentials and environment protection rules are configured.
+#
+# Required repository secrets / vars before enabling:
+#   AWS_ROLE_TO_ASSUME   - IAM role ARN for GitHub OIDC (no static keys)
+#   AWS_REGION           - e.g. us-east-1
+#   ECR_REPOSITORY       - ECR repository name (matches Terraform output)
+#   ECS_CLUSTER          - ECS cluster name (matches Terraform output)
+#   ECS_SERVICE          - ECS service name (matches Terraform output)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to the commit SHA)"
+        required: false
+        type: string
+
+permissions:
+  id-token: write   # required for AWS OIDC
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ECS Fargate
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          TAG: ${{ inputs.image_tag || github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$REPOSITORY:$TAG" .
+          docker push "$REGISTRY/$REPOSITORY:$TAG"
+          echo "image=$REGISTRY/$REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
+        id: build-image
+
+      # In a full implementation the task definition would be rendered
+      # with the new image and deployed with
+      # aws-actions/amazon-ecs-deploy-task-definition. Left as a stub:
+      - name: Deploy to ECS (placeholder)
+        run: |
+          echo "Would deploy ${{ steps.build-image.outputs.image }} to"
+          echo "cluster=${{ vars.ECS_CLUSTER }} service=${{ vars.ECS_SERVICE }}"
+          echo "TODO: render task definition and call ecs:UpdateService."
